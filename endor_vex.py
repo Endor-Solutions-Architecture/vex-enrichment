@@ -110,28 +110,41 @@ def get_package_uuids(token, namespace):
         sys.exit(1)
 
 def get_policy_details(token, policy_uuid, namespace):
-    """Fetch details for a specific policy UUID."""
-    base_namespace = namespace.split('.')[0]
-    url = f"{API_URL}/namespaces/{base_namespace}/policies/{policy_uuid}"
+    """Fetch details for a specific policy UUID by walking up the namespace tree."""
+    # Split namespace into parts and try each level
+    namespace_parts = namespace.split('.')
     
-    params = {
-        "get_parameters.mask": "spec.exception,meta.description,meta.tags,meta.create_time,meta.update_time"
-    }
-    
-    headers = {
-        "Accept": "application/json",
-        "Authorization": f"Bearer {token}"
-    }
+    # Try each namespace level, starting from the most specific
+    while namespace_parts:
+        current_namespace = '.'.join(namespace_parts)
+        url = f"{API_URL}/namespaces/{current_namespace}/policies/{policy_uuid}"
+        
+        params = {
+            "get_parameters.mask": "spec.exception,meta.description,meta.tags,meta.create_time,meta.update_time"
+        }
+        
+        headers = {
+            "Accept": "application/json",
+            "Authorization": f"Bearer {token}"
+        }
 
-    try:
-        response = requests.get(url, params=params, headers=headers, timeout=60)
-        response.raise_for_status()
-        return response.json()
-    except requests.exceptions.RequestException as e:
-        print(f"Error fetching policy {policy_uuid}: {str(e)}")
-        if hasattr(e, 'response') and e.response is not None:
-            print(f"Response text: {e.response.text}")
-        return None
+        try:
+            response = requests.get(url, params=params, headers=headers, timeout=60)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            if hasattr(e, 'response') and e.response is not None and e.response.status_code == 404:
+                # Try the parent namespace
+                namespace_parts.pop()
+                continue
+            else:
+                print(f"Error fetching policy {policy_uuid}: {str(e)}")
+                if hasattr(e, 'response') and e.response is not None:
+                    print(f"Response text: {e.response.text}")
+                return None
+    
+    # If we've tried all namespace levels and still haven't found it
+    return None
 
 def get_findings_with_exceptions(token, package_uuids, namespace):
     """Get findings that have exceptions applied to them for the given package UUIDs."""
@@ -153,7 +166,7 @@ def get_findings_with_exceptions(token, package_uuids, namespace):
                 "kind": "Finding",
                 "list_parameters": {
                     "filter": filter_condition,
-                    "mask": "spec.exceptions",
+                    "mask": "uuid,spec.exceptions",
                     "page_size": 500,
                     "sort": {
                         "path": "spec.level",
@@ -191,10 +204,25 @@ def get_findings_with_exceptions(token, package_uuids, namespace):
         
         # Fetch policy details for each unique policy UUID
         policies = {}
+        missing_policies = set()
         for policy_uuid in policy_uuids_set:
             policy_data = get_policy_details(token, policy_uuid, namespace)
             if policy_data:
                 policies[policy_uuid] = policy_data
+            else:
+                missing_policies.add(policy_uuid)
+        
+        # Print warnings for findings with missing policies
+        if missing_policies:
+            print("\nWarning: The following findings reference non-existent policies:")
+            for finding in findings:
+                if ('spec' in finding and 'exceptions' in finding['spec'] and 
+                    'policy_uuids' in finding['spec']['exceptions']):
+                    referenced_missing = set(finding['spec']['exceptions']['policy_uuids']) & missing_policies
+                    if referenced_missing:
+                        finding_id = finding.get('uuid', 'unknown')
+                        policies_str = ', '.join(referenced_missing)
+                        print(f"  - Finding {finding_id} references missing policies: {policies_str}. Please re-scan the packages.")
         
         return findings, policies
     except requests.exceptions.RequestException as e:
