@@ -28,6 +28,11 @@ def parse_args():
         help='Comma-separated list of package UUIDs to process. If not provided, UUIDs will be fetched from the namespace.',
         type=str
     )
+    parser.add_argument(
+        '--export-sbom',
+        help='Also export an SBOM for the packages.',
+        action='store_true'
+    )
     return parser.parse_args()
 
 def check_env_vars(namespace):
@@ -380,6 +385,67 @@ def save_vex_document(vex_data, findings, policies, output_dir="vex_exports"):
     
     return filepath
 
+def export_sbom(token, package_uuids, namespace, export_name=None):
+    """Export SBOM document for the specified package UUIDs."""
+    url = f"{API_URL}/namespaces/{namespace}/sbom-export"
+    
+    if not export_name:
+        export_name = f"SBOM Export: {namespace}"
+    
+    payload = {
+        "tenant_meta": {
+            "namespace": namespace
+        },
+        "meta": {
+            "name": export_name
+        },
+        "spec": {
+            "kind": "SBOM_KIND_CYCLONEDX",
+            "component_type": "COMPONENT_TYPE_APPLICATION",
+            "format": "FORMAT_JSON",
+            "export_parameters": {
+                "package_version_uuids": package_uuids
+            }
+        }
+    }
+    
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "Authorization": f"Bearer {token}"
+    }
+
+    try:
+        response = requests.post(url, json=payload, headers=headers, timeout=60)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        print(f"Error exporting SBOM document: {str(e)}")
+        if hasattr(e, 'response') and e.response is not None:
+            print(f"Response text: {e.response.text}")
+        sys.exit(1)
+
+def save_sbom_document(sbom_data, output_dir="sbom_exports"):
+    """Save SBOM document to a file."""
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    
+    if not isinstance(sbom_data, dict) or 'spec' not in sbom_data or 'data' not in sbom_data['spec']:
+        raise ValueError("Invalid SBOM response format: missing spec.data")
+    
+    sbom_content = sbom_data['spec']['data']
+    if not isinstance(sbom_content, dict):
+        sbom_content = json.loads(sbom_content)
+    
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"sbom_export_{timestamp}.json"
+    filepath = os.path.join(output_dir, filename)
+    
+    with open(filepath, 'w') as f:
+        json.dump(sbom_content, f, indent=2)
+    
+    return filepath
+
 def main():
     args = parse_args()
     check_env_vars(args.namespace)
@@ -397,7 +463,7 @@ def main():
             package_uuids = get_package_uuids(token, args.namespace)
         
         if not package_uuids:
-            print("No package UUIDs available. Cannot proceed with VEX export.")
+            print("No package UUIDs available. Cannot proceed with export.")
             sys.exit(1)
         
         print("Fetching findings with exceptions...")
@@ -405,9 +471,14 @@ def main():
         
         print("Exporting VEX document...")
         vex_response = export_vex(token, package_uuids, args.namespace)
-        
         output_file = save_vex_document(vex_response, findings, policies)
         print(f"VEX export completed successfully and saved to: {output_file}")
+        
+        if args.export_sbom:
+            print("\nExporting SBOM document...")
+            sbom_response = export_sbom(token, package_uuids, args.namespace)
+            sbom_file = save_sbom_document(sbom_response)
+            print(f"SBOM export completed successfully and saved to: {sbom_file}")
         
         return vex_response
     except Exception as e:
