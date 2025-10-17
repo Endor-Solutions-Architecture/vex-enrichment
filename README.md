@@ -20,8 +20,13 @@ Operating Modes:
    - Retrieves findings with exceptions for all discovered packages
    - Generates a comprehensive VEX document for the entire namespace
 
-2. Targeted Mode:
-   - Processes specific packages using provided UUIDs
+2. Project-Based Mode:
+   - Processes packages from specific projects using provided project UUIDs
+   - Automatically discovers all packages associated with each project
+   - Generates a VEX document for all packages across the specified projects
+
+3. Targeted Package Mode:
+   - Processes specific packages using provided package UUIDs
    - Retrieves findings with exceptions for listed packages only
    - Generates a focused VEX document for selected packages
 
@@ -46,7 +51,7 @@ ENDOR_NAMESPACE=your_namespace (optional - can also be provided via a command li
 
 ## Usage
 
-The tool can be run in two different modes:
+The tool can be run in three different modes:
 
 ### 1. Namespace-only Mode
 ```bash
@@ -60,32 +65,52 @@ In this mode, the tool will:
 
 This is useful when you want to:
 - Get a complete overview of all packages
-- Don't want to manually specify package UUIDs
+- Don't want to manually specify package or project UUIDs
 - Need to process your entire namespace in one go
 
-### 2. Targeted Package Mode
+### 2. Project-Based Mode
 ```bash
-python endor_vex.py --package-uuids uuid1,uuid2,uuid3
+python endor_vex.py --namespace your_namespace --project-uuids project_uuid1,project_uuid2
+```
+In this mode, the tool will:
+- Fetch all packages associated with the specified project UUIDs
+- Process findings and exceptions for packages in those projects
+- Generate a VEX document for all packages across the specified projects
+
+This is useful when you want to:
+- Focus on specific projects rather than individual packages
+- Generate VEX documents at the project level
+- Process multiple projects without listing individual packages
+
+### 3. Targeted Package Mode
+```bash
+python endor_vex.py --namespace your_namespace --package-uuids package_uuid1,package_uuid2,package_uuid3
 ```
 In this mode, the tool will:
 - Only process the specific packages you list
 - Focus the analysis on just those packages
 - Generate a VEX document for only the specified packages
-  ```bash
-  python endor_vex.py --namespace your_namespace --package-uuids uuid1,uuid2,uuid3
-  ```
 
 This is useful when you want to:
 - Focus on specific packages of interest
 - Generate targeted VEX documents for particular packages
 - Process a subset of packages from your namespace
 
+**Note:** The `--package-uuids` and `--project-uuids` parameters are mutually exclusive and cannot be used together.
+
+### Optional: Export SBOM
+Add the `--export-sbom` flag to any of the above commands to also export an SBOM document:
+```bash
+python endor_vex.py --namespace your_namespace --project-uuids project_uuid1 --export-sbom
+```
+
 The script will then:
 1. Authenticate with the Endor Labs API
-2. Either fetch all packages (namespace mode) or use provided package UUIDs (targeted mode)
+2. Fetch package UUIDs based on the selected mode (namespace, projects, or specific packages)
 3. Retrieve findings with exceptions
 4. Export and enrich a VEX document
 5. Save the enriched VEX document to the `vex_exports` directory
+6. Optionally export an SBOM document to the `sbom_exports` directory
 
 ## Output
 
