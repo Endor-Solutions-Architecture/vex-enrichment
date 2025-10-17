@@ -23,11 +23,20 @@ def parse_args():
         help='The Endor Labs namespace to use. If not provided, will fall back to ENDOR_NAMESPACE environment variable.',
         default=os.getenv("ENDOR_NAMESPACE")
     )
-    parser.add_argument(
+    
+    # Create mutually exclusive group for package-uuids and project-uuids
+    uuid_group = parser.add_mutually_exclusive_group()
+    uuid_group.add_argument(
         '--package-uuids',
         help='Comma-separated list of package UUIDs to process. If not provided, UUIDs will be fetched from the namespace.',
         type=str
     )
+    uuid_group.add_argument(
+        '--project-uuids',
+        help='Comma-separated list of project UUIDs to process. Package UUIDs will be fetched from these projects.',
+        type=str
+    )
+    
     parser.add_argument(
         '--export-sbom',
         help='Also export an SBOM for the packages.',
@@ -39,12 +48,9 @@ def check_env_vars(namespace):
     """Check if all required environment variables and arguments are set."""
     required_vars = {
         "API_KEY": os.getenv("API_KEY"),
-        "API_SECRET": os.getenv("API_SECRET")
+        "API_SECRET": os.getenv("API_SECRET"),
+        "Namespace": namespace
     }
-    
-    # Only check for namespace if package UUIDs weren't provided
-    if not hasattr(parse_args(), 'package_uuids') or not parse_args().package_uuids:
-        required_vars["Namespace"] = namespace
     
     missing_vars = [var for var, value in required_vars.items() if not value]
     
@@ -113,6 +119,44 @@ def get_package_uuids(token, namespace):
         if hasattr(e, 'response') and e.response is not None:
             print(f"Response text: {e.response.text}")
         sys.exit(1)
+
+def get_package_uuids_from_projects(token, project_uuids, namespace):
+    """Fetch package UUIDs for the given project UUIDs."""
+    all_package_uuids = []
+    
+    for project_uuid in project_uuids:
+        print(f"Fetching package UUIDs for project {project_uuid}...")
+        
+        # Create filter for this specific project
+        filter_param = f'context.type==CONTEXT_TYPE_MAIN and spec.ecosystem != ECOSYSTEM_GITHUB_ACTION and spec.project_uuid=="{project_uuid}"'
+        
+        url = f"{API_URL}/namespaces/{namespace}/package-versions"
+        params = {
+            "list_parameters.filter": filter_param,
+            "list_parameters.mask": "uuid"
+        }
+        headers = {
+            "Accept": "application/json",
+            "Authorization": f"Bearer {token}"
+        }
+
+        try:
+            response = requests.get(url, params=params, headers=headers, timeout=60)
+            response.raise_for_status()
+            data = response.json()
+            
+            if 'list' in data and 'objects' in data['list']:
+                package_uuids = [obj.get('uuid') for obj in data['list']['objects'] if obj.get('uuid')]
+                print(f"  Found {len(package_uuids)} packages for project {project_uuid}")
+                all_package_uuids.extend(package_uuids)
+        except requests.exceptions.RequestException as e:
+            print(f"Error fetching package UUIDs for project {project_uuid}: {str(e)}")
+            if hasattr(e, 'response') and e.response is not None:
+                print(f"Response text: {e.response.text}")
+            sys.exit(1)
+    
+    print(f"Total packages found across all projects: {len(all_package_uuids)}")
+    return all_package_uuids
 
 def get_policy_details(token, policy_uuid, namespace):
     """Fetch details for a specific policy UUID by walking up the namespace tree."""
@@ -458,6 +502,10 @@ def main():
         if args.package_uuids:
             package_uuids = [uuid.strip() for uuid in args.package_uuids.split(',')]
             print(f"Using {len(package_uuids)} provided package UUIDs")
+        elif args.project_uuids:
+            project_uuids = [uuid.strip() for uuid in args.project_uuids.split(',')]
+            print(f"Fetching package UUIDs for {len(project_uuids)} project(s)...")
+            package_uuids = get_package_uuids_from_projects(token, project_uuids, args.namespace)
         else:
             print("Fetching package UUIDs from namespace...")
             package_uuids = get_package_uuids(token, args.namespace)
