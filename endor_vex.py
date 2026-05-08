@@ -42,6 +42,14 @@ def parse_args():
         help='Also export an SBOM for the packages.',
         action='store_true'
     )
+    parser.add_argument(
+        '--vex-filename',
+        help='Custom filename for the VEX export. If omitted, uses vex_export_<timestamp>.json.'
+    )
+    parser.add_argument(
+        '--sbom-filename',
+        help='Custom filename for the SBOM export. If omitted, uses sbom_export_<timestamp>.json.'
+    )
     return parser.parse_args()
 
 def check_env_vars(namespace):
@@ -409,19 +417,20 @@ def update_vex_with_exceptions(vex_data, findings, policies):
     
     return vex_content
 
-def save_vex_document(vex_data, findings, policies, output_dir="vex_exports"):
+def save_vex_document(vex_data, findings, policies, output_dir="vex_exports", filename=None):
     """Save VEX document to a file."""
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
-    
+
     if not isinstance(vex_data, dict) or 'spec' not in vex_data or 'data' not in vex_data['spec']:
         raise ValueError("Invalid VEX response format: missing spec.data")
-    
+
     vex_content = vex_data['spec']['data']
     vex_content = update_vex_with_exceptions(vex_content, findings, policies)
-    
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"vex_export_{timestamp}.json"
+
+    if not filename:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"vex_export_{timestamp}.json"
     filepath = os.path.join(output_dir, filename)
     
     with open(filepath, 'w') as f:
@@ -469,20 +478,21 @@ def export_sbom(token, package_uuids, namespace, export_name=None):
             print(f"Response text: {e.response.text}")
         sys.exit(1)
 
-def save_sbom_document(sbom_data, output_dir="sbom_exports"):
+def save_sbom_document(sbom_data, output_dir="sbom_exports", filename=None):
     """Save SBOM document to a file."""
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
-    
+
     if not isinstance(sbom_data, dict) or 'spec' not in sbom_data or 'data' not in sbom_data['spec']:
         raise ValueError("Invalid SBOM response format: missing spec.data")
-    
+
     sbom_content = sbom_data['spec']['data']
     if not isinstance(sbom_content, dict):
         sbom_content = json.loads(sbom_content)
-    
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"sbom_export_{timestamp}.json"
+
+    if not filename:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"sbom_export_{timestamp}.json"
     filepath = os.path.join(output_dir, filename)
     
     with open(filepath, 'w') as f:
@@ -519,13 +529,13 @@ def main():
         
         print("Exporting VEX document...")
         vex_response = export_vex(token, package_uuids, args.namespace)
-        output_file = save_vex_document(vex_response, findings, policies)
+        output_file = save_vex_document(vex_response, findings, policies, filename=args.vex_filename)
         print(f"VEX export completed successfully and saved to: {output_file}")
         
         if args.export_sbom:
             print("\nExporting SBOM document...")
             sbom_response = export_sbom(token, package_uuids, args.namespace)
-            sbom_file = save_sbom_document(sbom_response)
+            sbom_file = save_sbom_document(sbom_response, filename=args.sbom_filename)
             print(f"SBOM export completed successfully and saved to: {sbom_file}")
         
         return vex_response

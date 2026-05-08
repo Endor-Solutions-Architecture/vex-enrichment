@@ -104,6 +104,13 @@ Add the `--export-sbom` flag to any of the above commands to also export an SBOM
 python endor_vex.py --namespace your_namespace --project-uuids project_uuid1 --export-sbom
 ```
 
+### Optional: Custom Output Filenames
+By default the VEX and SBOM files are named `vex_export_<timestamp>.json` and `sbom_export_<timestamp>.json`. You can override these names with `--vex-filename` and `--sbom-filename`:
+```bash
+python endor_vex.py --namespace your_namespace --vex-filename my_vex.json --export-sbom --sbom-filename my_sbom.json
+```
+The provided value is used verbatim (no extension is appended) and saved into the `vex_exports` / `sbom_exports` directory. If a flag is omitted, the default timestamped filename is used.
+
 The script will then:
 1. Authenticate with the Endor Labs API
 2. Fetch package UUIDs based on the selected mode (namespace, projects, or specific packages)
@@ -118,6 +125,7 @@ The tool generates a JSON file in the `vex_exports` directory with the naming fo
 ```
 vex_export_YYYYMMDD_HHMMSS.json
 ```
+This default name can be overridden with `--vex-filename` (and `--sbom-filename` for the optional SBOM export).
 
 The output follows the CycloneDX VEX JSON format, enriched with analysis information from your Endor Labs exception policies.
 
